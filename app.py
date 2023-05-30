@@ -1,15 +1,19 @@
-import gradio as gr
-from huggingface_hub import HfApi
-import openai
-import os, time, uuid, json
-from llms.chatbot import OpenAIChatBot
-from llms.preprocessing import PreprocessingBot
-from knowledge.faiss_handler import create_faiss_index_from_zip, load_faiss_index_from_zip
-from utils import make_archive
+import json
+import os
+import time
+import uuid
 from datetime import datetime
 
+import gradio as gr
+import openai
+from huggingface_hub import HfApi
 from langchain.document_loaders import PyPDFLoader, \
     UnstructuredPDFLoader, PyPDFium2Loader, PyMuPDFLoader, PDFPlumberLoader
+
+from knowledge.faiss_handler import create_faiss_index_from_zip, load_faiss_index_from_zip
+from llms.chatbot import OpenAIChatBot
+from llms.preprocessing import PreprocessingBot
+from utils import make_archive
 
 UPLOAD_REPO_ID=os.getenv("UPLOAD_REPO_ID")
 HF_TOKEN=os.getenv("HF_TOKEN")
@@ -23,7 +27,7 @@ LOCAL_DP = None
 ALL_PDF_LOADERS = [PyPDFLoader, UnstructuredPDFLoader, PyPDFium2Loader, PyMuPDFLoader, PDFPlumberLoader]
 PDF_LOADER_MAPPING = {loader.__name__: loader for loader in ALL_PDF_LOADERS}
 
-INSTRUCTIONS = '''FAISS Chat: 和本地数据库聊天!'''
+INSTRUCTIONS = '''# FAISS Chat: 和本地数据库聊天!'''
 
 
 def get_augmented_message(message, local_db, query_count, preprocessing):
@@ -67,7 +71,7 @@ def respond(message, chat_history, query_count=5, test_mode=False, response_dela
         return "", chat_history
     else:
         augmented_message = get_augmented_message(message, LOCAL_DP, query_count, preprocessing)
-        bot_message = gpt_chatbot(augmented_message)
+        bot_message = gpt_chatbot(augmented_message, original_message=message)
         if test_mode:
             chat_history.append((augmented_message, bot_message))
         else:
