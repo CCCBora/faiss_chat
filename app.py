@@ -17,7 +17,7 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 hf_api = HfApi(token=HF_TOKEN)
 
 gpt_chatbot = OpenAIChatBot()
-preprocessing = PreprocessingBot()
+preprocessing_bot = PreprocessingBot()
 
 LOCAL_DP = None
 ALL_PDF_LOADERS = [PyPDFLoader, UnstructuredPDFLoader, PyPDFium2Loader, PyMuPDFLoader, PDFPlumberLoader]
@@ -40,7 +40,7 @@ def get_augmented_message(message, local_db, query_count, preprocessing):
     if preprocessing:
         print("Pre-processing ...")
         try:
-            augmented_message = preprocessing("\n\n---\n\n".join(contents) + "\n\n-----\n\n")
+            augmented_message = preprocessing_bot("\n\n---\n\n".join(contents) + "\n\n-----\n\n")
             print("Success in pre-processing. ")
             try:
                 msg = json.loads(augmented_message)
@@ -53,7 +53,7 @@ def get_augmented_message(message, local_db, query_count, preprocessing):
             augmented_message = f"{{'user_input': {message}}}"
             return augmented_message + "\n\n" + message
     else:
-        augmented_message = preprocessing("\n\n---\n\n".join(contents) + "\n\n-----\n\n")
+        augmented_message = "\n\n---\n\n".join(contents) + "\n\n-----\n\n"
         return augmented_message + "\n\n" + f"'user_input': {message}"
 
 
