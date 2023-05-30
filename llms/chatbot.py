@@ -1,4 +1,5 @@
 import openai
+import copy
 
 class OpenAIChatBot:
     def __init__(self, model="gpt-3.5-turbo"):
@@ -10,14 +11,18 @@ class OpenAIChatBot:
         self.model = model
         self.message = [{"role": "system", "content": self.system}]
 
-    def __call__(self, message):
+    def __call__(self, message, original_message = None):
         user_message = {"role": "user", "content": message}
-        self.message.append(user_message)
+        user_raw_message = {"role": "user", "content": original_message}
+
+        augmented_message = copy.deepcopy(self.message)
+        augmented_message.append(user_message)
 
         completion = openai.ChatCompletion.create(
             model=self.model,
-            messages=self.message
+            messages=augmented_message
         )
         assistant_message = completion.choices[0].message
+        self.message.append(user_raw_message)
         self.message.append(assistant_message)
         return assistant_message["content"]

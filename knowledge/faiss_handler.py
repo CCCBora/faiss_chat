@@ -67,7 +67,7 @@ def create_faiss_index_from_zip(path_to_zip_file, embeddings=None, pdf_loader=No
     current_directory = os.getcwd()
     project_name = os.path.join(current_directory, project_name)
     data_id = str(uuid.uuid1())
-    working_directory = os.path.join(project_name, str(data_id))
+    working_directory = os.path.join(project_name, data_id)
     if not os.path.exists(project_name):
         os.makedirs(project_name)
     pdf_data = os.path.join(working_directory, "pdf_data")
