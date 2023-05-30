@@ -14,6 +14,7 @@ EMBED_MODEL = "text-embedding-ada-002"
 EMBED_DIM = 1536
 METRIC = 'cosine'
 
+
 #######################################################################################################################
 # PDF Files handler
 #######################################################################################################################
@@ -24,6 +25,7 @@ def list_pdf_files(directory):
     pdf_files = [file for file in files_in_directory if file.endswith(".pdf")]
     return pdf_files
 
+
 def tiktoken_len(text):
     # evaluate how many tokens for the given text
     tokens = tokenizer.encode(text, disallowed_special=())
@@ -33,9 +35,9 @@ def tiktoken_len(text):
 def get_chunks(docs, chunk_size=500, chunk_overlap=20, length_function=tiktoken_len):
     # docs should be the output of `loader.load()`
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size,
-                                                    chunk_overlap=chunk_overlap,
-                                                    length_function=length_function,
-                                                    separators=["\n\n", "\n", " ", ""])
+                                                   chunk_overlap=chunk_overlap,
+                                                   length_function=length_function,
+                                                   separators=["\n\n", "\n", " ", ""])
     chunks = []
     for idx, page in enumerate(tqdm(docs)):
         source = page.metadata.get('source')
@@ -43,8 +45,10 @@ def get_chunks(docs, chunk_size=500, chunk_overlap=20, length_function=tiktoken_
         content = page.page_content
         if len(content) > 50:
             texts = text_splitter.split_text(content)
-            chunks.extend([str({'content': texts[i], 'chunk': i, 'source': source, 'pdf_name': pdf_name  }) for i in range(len(texts))])
+            chunks.extend([str({'content': texts[i], 'chunk': i, 'source': source, 'pdf_name': pdf_name}) for i in
+                           range(len(texts))])
     return chunks
+
 
 #######################################################################################################################
 # Create FAISS object
@@ -73,7 +77,7 @@ def create_faiss_index_from_zip(path_to_zip_file, embeddings=None, pdf_loader=No
     pdf_data = os.path.join(working_directory, "pdf_data")
     embeddings_data = os.path.join(working_directory, "embeddings")
     index_data = os.path.join(working_directory, "faiss_index")
-    os.makedirs(working_directory) # uuid is always unique; no need to check existence
+    os.makedirs(working_directory)  # uuid is always unique; no need to check existence
     os.makedirs(pdf_data)
     os.makedirs(embeddings_data)
     os.makedirs(index_data)
@@ -87,7 +91,7 @@ def create_faiss_index_from_zip(path_to_zip_file, embeddings=None, pdf_loader=No
         json.dump(db_meta, f)
     for idx, pdf_file in enumerate(all_pdf_files):
         # load meta data corresponds to the given pdf_file
-        filename = os.path.splitext(pdf_file)[0]+ ".json"
+        filename = os.path.splitext(pdf_file)[0] + ".json"
         if os.path.exists(filename):
             with open(filename, "r", encoding="utf-8") as f:
                 meta_data = json.load(f)
@@ -122,7 +126,8 @@ def create_faiss_index_from_zip(path_to_zip_file, embeddings=None, pdf_loader=No
     print("Success!")
     return db, project_name
 
-def load_faiss_index_from_zip(path_to_zip_file, embeddings=None, project_name = "faiss_index"):
+
+def load_faiss_index_from_zip(path_to_zip_file, embeddings=None):
     if embeddings is None:
         from langchain.embeddings.openai import OpenAIEmbeddings
         embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
@@ -131,22 +136,18 @@ def load_faiss_index_from_zip(path_to_zip_file, embeddings=None, project_name = 
     with zipfile.ZipFile(path_to_zip_file, 'r') as zip_ref:
         zip_ref.extractall(path_to_extract)
 
-    path_to_extract = os.path.join(path_to_extract, project_name)
+    path_to_extract = os.path.join(path_to_extract, os.listdir(path_to_extract)[0])
     # list all directories
-    directories = [os.path.join(path_to_extract,d) for d in os.listdir(path_to_extract) if os.path.isdir(os.path.join(path_to_extract, d))]
+    directories = [os.path.join(path_to_extract, d) for d in os.listdir(path_to_extract) if
+                   os.path.isdir(os.path.join(path_to_extract, d))]
     index_path = os.path.join(directories[0], "faiss_index")
     db = FAISS.load_local(index_path, embeddings)
     for idx, folder in enumerate(directories):
         if idx != 0:
             index_path = os.path.join(folder, "faiss_index")
-            new_db =FAISS.load_local(index_path, embeddings)
+            new_db = FAISS.load_local(index_path, embeddings)
             db.merge_from(new_db)
     return db
-
-
-
-
-
 
 
 if __name__ == "__main__":
