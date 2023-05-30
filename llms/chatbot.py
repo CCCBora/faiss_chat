@@ -23,6 +23,7 @@ class OpenAIChatBot:
             messages=augmented_message
         )
         assistant_message = completion.choices[0].message
+        print(assistant_message)
         self.message.append(user_raw_message)
         self.message.append(assistant_message)
         return assistant_message["content"]

@@ -23,7 +23,7 @@ LOCAL_DP = None
 ALL_PDF_LOADERS = [PyPDFLoader, UnstructuredPDFLoader, PyPDFium2Loader, PyMuPDFLoader, PDFPlumberLoader]
 PDF_LOADER_MAPPING = {loader.__name__: loader for loader in ALL_PDF_LOADERS}
 
-INSTRUCTIONS = '''How to use? '''
+INSTRUCTIONS = '''FAISS Chat: 和本地数据库聊天!'''
 
 
 def get_augmented_message(message, local_db, query_count, preprocessing):
@@ -37,6 +37,7 @@ def get_augmented_message(message, local_db, query_count, preprocessing):
         # pre-process meta data
         contents.append(content)
     # generate augmented_message
+    print("Success in querying references: {}".format(contents))
     if preprocessing:
         print("Pre-processing ...")
         try:
