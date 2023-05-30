@@ -16,3 +16,6 @@ Webui版本的Langchain-Chat. 目前支持两个功能:
 * 将本地PDF文件打包上传, 构建FAISS向量数据库. 
 * 直接上传本地的FAISS向量数据库. 
 
+## 体验地址
+[Huggingface Space](https://huggingface.co/spaces/shaocongma/faiss_chat)
+
