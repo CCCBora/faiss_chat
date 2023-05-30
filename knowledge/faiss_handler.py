@@ -61,7 +61,8 @@ def create_faiss_index_from_zip(path_to_zip_file, embeddings=None, pdf_loader=No
         from langchain.embeddings.openai import OpenAIEmbeddings
         embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
     db_meta = {"project_name": project_name, "project_description": project_description,
-               "pdf_loader": pdf_loader.__name__, "chunk_size": chunk_size, "chunk_overlap": chunk_overlap}
+               "pdf_loader": pdf_loader.__name__, "chunk_size": chunk_size, "chunk_overlap": chunk_overlap,
+               "dim": EMBED_DIM, "model": EMBED_MODEL, "metric": METRIC}
 
     current_directory = os.getcwd()
     project_name = os.path.join(current_directory, project_name)

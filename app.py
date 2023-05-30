@@ -26,7 +26,7 @@ PDF_LOADER_MAPPING = {loader.__name__: loader for loader in ALL_PDF_LOADERS}
 INSTRUCTIONS = '''How to use? '''
 
 
-def get_augmented_message(message, local_db, query_count):
+def get_augmented_message(message, local_db, query_count, preprocessing):
     print(f"Receiving message: {message}")
     print("Querying references from the local database...")
     docs = local_db.similarity_search(message, k=query_count)
@@ -37,30 +37,35 @@ def get_augmented_message(message, local_db, query_count):
         # pre-process meta data
         contents.append(content)
     # generate augmented_message
-    print("Pre-processing ...")
-    try:
-        augmented_message = preprocessing("\n\n---\n\n".join(contents) + "\n\n-----\n\n")
-        print("Success in pre-processing. ")
+    if preprocessing:
+        print("Pre-processing ...")
         try:
-            msg = json.loads(augmented_message)
-            msg['user_input'] = message
-            return str(msg)
-        except:
-            return augmented_message + "\n\n" + f"{{'user_input': {message}}}"
+            augmented_message = preprocessing("\n\n---\n\n".join(contents) + "\n\n-----\n\n")
+            print("Success in pre-processing. ")
+            try:
+                msg = json.loads(augmented_message)
+                msg['user_input'] = message
+                return str(msg)
+            except:
+                return augmented_message + "\n\n" + f"{{'user_input': {message}}}"
+        except Exception as e:
+            print(f"Failed in pre-processing the documents: {e}. Return the raw input.")
+            augmented_message = f"{{'user_input': {message}}}"
+            return augmented_message + "\n\n" + message
+    else:
+        augmented_message = preprocessing("\n\n---\n\n".join(contents) + "\n\n-----\n\n")
+        return augmented_message + "\n\n" + f"'user_input': {message}"
 
-    except Exception as e:
-        print(f"Failed in pre-processing the documents: {e}. Return the raw input.")
-        augmented_message = f"{{'user_input': {message}}}"
-        return augmented_message + "\n\n" + message
 
 
-def respond(message, chat_history, query_count=5, test_mode=False, response_delay=5):
+
+def respond(message, chat_history, query_count=5, test_mode=False, response_delay=5, preprocessing=False):
     if LOCAL_DP is None or query_count==0:
         bot_message = gpt_chatbot(message)
         chat_history.append((message, bot_message))
         return "", chat_history
     else:
-        augmented_message = get_augmented_message(message, LOCAL_DP, query_count)
+        augmented_message = get_augmented_message(message, LOCAL_DP, query_count, preprocessing)
         bot_message = gpt_chatbot(augmented_message)
         if test_mode:
             chat_history.append((augmented_message, bot_message))
