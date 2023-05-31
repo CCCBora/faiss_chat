@@ -10,19 +10,29 @@ class OpenAIChatBot:
                       "If you cannot find related references, you still need to answer user's question but you also need to notice the user that your response is not based on the provided references."
         self.model = model
         self.message = [{"role": "system", "content": self.system}]
+        self.raw_message = [{"role": "system", "content": self.system}]
+
+    def load_message(self, message, role, original_message=None):
+        if original_message is None:
+            original_message = message
+        msg = {"role": role, "content": message}
+        self.message.append(msg)
+        msg = {"role": role, "content": original_message}
+        self.raw_message.append(msg)
+
+    def load_chat(self, chat):
+        msg = {"role": "user", "content": chat[0]}
+        self.message.append(msg)
+        msg = {"role": "assistant", "content": chat[1]}
+        self.raw_message.append(msg)
+
 
     def __call__(self, message, original_message = None):
-        user_message = {"role": "user", "content": message}
-        user_raw_message = {"role": "user", "content": original_message}
-
+        self.load_message(message, "user", original_message)
         augmented_message = copy.deepcopy(self.message)
-        augmented_message.append(user_message)
-
         completion = openai.ChatCompletion.create(
             model=self.model,
             messages=augmented_message
         )
         assistant_message = completion.choices[0].message
-        self.message.append(user_raw_message)
-        self.message.append(assistant_message)
         return assistant_message["content"]

@@ -27,45 +27,40 @@ INSTRUCTIONS = '''# FAISS Chat: 和本地数据库聊天!'''
 
 
 
+def load_pdf_as_db(file_from_gradio,
+                   pdf_loader,
+                   chunk_size=300,
+                   chunk_overlap=20,
+                   upload_to_cloud=True):
+    if file_from_gradio is None:
+        return "文件为空. 创建失败.", None
+    pdf_loader = PDF_LOADER_MAPPING[pdf_loader]
+    zip_file_path = file_from_gradio.name
+    db, project_name = create_faiss_index_from_zip(zip_file_path, pdf_loader=pdf_loader, chunk_size=chunk_size,
+                                                         chunk_overlap=chunk_overlap, project_name=str(uuid.uuid4()))
+    index_name = str(uuid.uuid4()) + ".zip"
+    make_archive(project_name, index_name)
+    date = datetime.today().strftime('%Y-%m-%d')
+    if upload_to_cloud:
+        hf_api.upload_file(path_or_fileobj=index_name,
+                           path_in_repo=f"{date}/faiss_{index_name}.zip",
+                           repo_id=UPLOAD_REPO_ID,
+                           repo_type="dataset")
+    return "成功创建知识库. 可以开始聊天了!", index_name, db
+
+
+def load_local_db(file_from_gradio):
+    if file_from_gradio is None:
+        return "文件为空. 创建失败.", None
+    zip_file_path = file_from_gradio.name
+    db = load_faiss_index_from_zip(zip_file_path)
+
+    return "成功读取知识库. 可以开始聊天了!", db
+
+
 
 with gr.Blocks() as demo:
-
-    LOCAL_DP = None
-    gpt_chatbot = OpenAIChatBot()
-    preprocessing_bot = PreprocessingBot()
-
-    def load_pdf_as_db(file_from_gradio,
-                       pdf_loader,
-                       chunk_size=300,
-                       chunk_overlap=20,
-                       upload_to_cloud=True):
-        if file_from_gradio is None:
-            return "文件为空. 创建失败.", None
-        global LOCAL_DP
-        pdf_loader = PDF_LOADER_MAPPING[pdf_loader]
-        zip_file_path = file_from_gradio.name
-        LOCAL_DP, project_name = create_faiss_index_from_zip(zip_file_path, pdf_loader=pdf_loader, chunk_size=chunk_size,
-                                                             chunk_overlap=chunk_overlap, project_name=str(uuid.uuid4()))
-        index_name = str(uuid.uuid4()) + ".zip"
-        make_archive(project_name, index_name)
-        date = datetime.today().strftime('%Y-%m-%d')
-        if upload_to_cloud:
-            hf_api.upload_file(path_or_fileobj=index_name,
-                               path_in_repo=f"{date}/faiss_{index_name}.zip",
-                               repo_id=UPLOAD_REPO_ID,
-                               repo_type="dataset")
-        return "成功创建知识库. 可以开始聊天了!", index_name
-
-
-    def load_local_db(file_from_gradio):
-        if file_from_gradio is None:
-            return "文件为空. 创建失败.", None
-
-        global LOCAL_DP
-        zip_file_path = file_from_gradio.name
-        LOCAL_DP = load_faiss_index_from_zip(zip_file_path)
-
-        return "成功读取知识库. 可以开始聊天了!"
+    local_db = gr.State(None)
 
     def get_augmented_message(message, local_db, query_count, preprocessing):
         print(f"Receiving message: {message}")
@@ -82,7 +77,8 @@ with gr.Blocks() as demo:
         if preprocessing:
             print("Pre-processing ...")
             try:
-                augmented_message = preprocessing_bot("\n\n---\n\n".join(contents) + "\n\n-----\n\n")
+                # augmented_message = preprocessing_bot("\n\n---\n\n".join(contents) + "\n\n-----\n\n")
+                augmented_message = "\n\n---\n\n".join(contents) + "\n\n-----\n\n"
                 print("Success in pre-processing. ")
                 try:
                     msg = json.loads(augmented_message)
@@ -99,14 +95,25 @@ with gr.Blocks() as demo:
             return augmented_message + "\n\n" + f"'user_input': {message}"
 
 
-    def respond(message, chat_history, query_count=5, test_mode=False, response_delay=5, preprocessing=False):
-        if LOCAL_DP is None or query_count == 0:
+    def respond(message, local_db, chat_history, query_count=5, test_mode=False, response_delay=5, preprocessing=False):
+        gpt_chatbot = OpenAIChatBot()
+        print(chat_history)
+        for chat in chat_history:
+            print(chat)
+        for chat in chat_history:
+            gpt_chatbot.load_chat(chat)
+        if local_db is None or query_count == 0:
             bot_message = gpt_chatbot(message)
+            print(bot_message)
+            print(message)
             chat_history.append((message, bot_message))
             return "", chat_history
         else:
-            augmented_message = get_augmented_message(message, LOCAL_DP, query_count, preprocessing)
+            augmented_message = get_augmented_message(message, local_db, query_count, preprocessing)
             bot_message = gpt_chatbot(augmented_message, original_message=message)
+            print(message)
+            print(augmented_message)
+            print(bot_message)
             if test_mode:
                 chat_history.append((augmented_message, bot_message))
             else:
@@ -115,7 +122,6 @@ with gr.Blocks() as demo:
             return "", chat_history
 
     with gr.Row():
-
         with gr.Column():
             gr.Markdown(INSTRUCTIONS)
 
@@ -140,7 +146,6 @@ with gr.Blocks() as demo:
             chatbot = gr.Chatbot()
 
             msg = gr.Textbox()
-            clear = gr.Button("Clear")
             submit = gr.Button("Submit", variant="primary")
             with gr.Accordion("高级设置", open=False):
                 with gr.Row():
@@ -148,12 +153,11 @@ with gr.Blocks() as demo:
                                                   label="Query counts")
                     test_mode_checkbox = gr.Checkbox(label="Test mode")
 
-    msg.submit(respond, [msg, chatbot], [msg, chatbot])
-    clear.click(lambda: None, None, chatbot, queue=False)
-    submit.click(respond, [msg, chatbot, query_count_slider, test_mode_checkbox], [msg, chatbot])
+    msg.submit(respond, [msg, local_db, chatbot, query_count_slider, test_mode_checkbox], [msg, chatbot])
+    submit.click(respond, [msg, local_db, chatbot, query_count_slider, test_mode_checkbox], [msg, chatbot])
 
     create_db.click(load_pdf_as_db, [file_pdf, pdf_loader_selector, chunk_size_slider, chunk_overlap_slider],
-                    [status, file_dp_output])
-    load_db.click(load_local_db, [file_local], [status])
+                    [status, file_dp_output, local_db])
+    load_db.click(load_local_db, [file_local], [status, local_db])
 
 demo.launch()
