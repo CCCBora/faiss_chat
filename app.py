@@ -20,8 +20,6 @@ HF_TOKEN=os.getenv("HF_TOKEN")
 openai.api_key = os.getenv("OPENAI_API_KEY")
 hf_api = HfApi(token=HF_TOKEN)
 
-
-LOCAL_DP = None
 ALL_PDF_LOADERS = [PyPDFLoader, UnstructuredPDFLoader, PyPDFium2Loader, PyMuPDFLoader, PDFPlumberLoader]
 PDF_LOADER_MAPPING = {loader.__name__: loader for loader in ALL_PDF_LOADERS}
 
@@ -29,43 +27,45 @@ INSTRUCTIONS = '''# FAISS Chat: 和本地数据库聊天!'''
 
 
 
-def load_pdf_as_db(file_from_gradio,
-                   pdf_loader,
-                   chunk_size=300,
-                   chunk_overlap=20,
-                   upload_to_cloud=True):
-    if file_from_gradio is None:
-        return "文件为空. 创建失败.", None
-    global LOCAL_DP
-    pdf_loader = PDF_LOADER_MAPPING[pdf_loader]
-    zip_file_path = file_from_gradio.name
-    LOCAL_DP, project_name = create_faiss_index_from_zip(zip_file_path, pdf_loader=pdf_loader, chunk_size=chunk_size,
-                                                         chunk_overlap=chunk_overlap, project_name=str(uuid.uuid4()))
-    index_name = str(uuid.uuid4()) + ".zip"
-    make_archive(project_name, index_name)
-    date = datetime.today().strftime('%Y-%m-%d')
-    if upload_to_cloud:
-        hf_api.upload_file(path_or_fileobj=index_name,
-                           path_in_repo=f"{date}/faiss_{index_name}.zip",
-                           repo_id=UPLOAD_REPO_ID,
-                           repo_type="dataset")
-    return "成功创建知识库. 可以开始聊天了!", index_name
-
-
-def load_local_db(file_from_gradio):
-    if file_from_gradio is None:
-        return "文件为空. 创建失败.", None
-
-    global LOCAL_DP
-    zip_file_path = file_from_gradio.name
-    LOCAL_DP = load_faiss_index_from_zip(zip_file_path)
-
-    return "成功读取知识库. 可以开始聊天了!"
-
 
 with gr.Blocks() as demo:
+
+    LOCAL_DP = None
     gpt_chatbot = OpenAIChatBot()
     preprocessing_bot = PreprocessingBot()
+
+    def load_pdf_as_db(file_from_gradio,
+                       pdf_loader,
+                       chunk_size=300,
+                       chunk_overlap=20,
+                       upload_to_cloud=True):
+        if file_from_gradio is None:
+            return "文件为空. 创建失败.", None
+        global LOCAL_DP
+        pdf_loader = PDF_LOADER_MAPPING[pdf_loader]
+        zip_file_path = file_from_gradio.name
+        LOCAL_DP, project_name = create_faiss_index_from_zip(zip_file_path, pdf_loader=pdf_loader, chunk_size=chunk_size,
+                                                             chunk_overlap=chunk_overlap, project_name=str(uuid.uuid4()))
+        index_name = str(uuid.uuid4()) + ".zip"
+        make_archive(project_name, index_name)
+        date = datetime.today().strftime('%Y-%m-%d')
+        if upload_to_cloud:
+            hf_api.upload_file(path_or_fileobj=index_name,
+                               path_in_repo=f"{date}/faiss_{index_name}.zip",
+                               repo_id=UPLOAD_REPO_ID,
+                               repo_type="dataset")
+        return "成功创建知识库. 可以开始聊天了!", index_name
+
+
+    def load_local_db(file_from_gradio):
+        if file_from_gradio is None:
+            return "文件为空. 创建失败.", None
+
+        global LOCAL_DP
+        zip_file_path = file_from_gradio.name
+        LOCAL_DP = load_faiss_index_from_zip(zip_file_path)
+
+        return "成功读取知识库. 可以开始聊天了!"
 
     def get_augmented_message(message, local_db, query_count, preprocessing):
         print(f"Receiving message: {message}")
@@ -115,6 +115,7 @@ with gr.Blocks() as demo:
             return "", chat_history
 
     with gr.Row():
+
         with gr.Column():
             gr.Markdown(INSTRUCTIONS)
 
