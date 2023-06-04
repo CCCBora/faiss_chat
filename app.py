@@ -10,9 +10,10 @@ from huggingface_hub import HfApi
 from langchain.document_loaders import PyPDFLoader, \
     UnstructuredPDFLoader, PyPDFium2Loader, PyMuPDFLoader, PDFPlumberLoader
 
+
 from knowledge.faiss_handler import create_faiss_index_from_zip, load_faiss_index_from_zip
 from llms.chatbot import OpenAIChatBot
-from llms.preprocessing import PreprocessingBot
+from llms.embeddings import EMBEDDINGS_MAPPING
 from utils import make_archive
 
 UPLOAD_REPO_ID=os.getenv("UPLOAD_REPO_ID")
@@ -21,24 +22,37 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 hf_api = HfApi(token=HF_TOKEN)
 
 ALL_PDF_LOADERS = [PyPDFLoader, UnstructuredPDFLoader, PyPDFium2Loader, PyMuPDFLoader, PDFPlumberLoader]
+ALL_EMBEDDINGS = EMBEDDINGS_MAPPING.keys()
 PDF_LOADER_MAPPING = {loader.__name__: loader for loader in ALL_PDF_LOADERS}
+
+
+#######################################################################################################################
+# Host multiple vector database for use
+#######################################################################################################################
+
+
+
 
 INSTRUCTIONS = '''# FAISS Chat: 和本地数据库聊天!'''
 
 
-
 def load_pdf_as_db(file_from_gradio,
                    pdf_loader,
+                   embedding_model,
                    chunk_size=300,
                    chunk_overlap=20,
                    upload_to_cloud=True):
+    if chunk_size <= chunk_overlap:
+        return "chunk_size小于chunk_overlap. 创建失败.", None, None
     if file_from_gradio is None:
-        return "文件为空. 创建失败.", None
+        return "文件为空. 创建失败.", None, None
     pdf_loader = PDF_LOADER_MAPPING[pdf_loader]
     zip_file_path = file_from_gradio.name
-    db, project_name = create_faiss_index_from_zip(zip_file_path, pdf_loader=pdf_loader, chunk_size=chunk_size,
-                                                         chunk_overlap=chunk_overlap, project_name=str(uuid.uuid4()))
-    index_name = str(uuid.uuid4()) + ".zip"
+    project_name = uuid.uuid4().hex
+    db, project_name = create_faiss_index_from_zip(zip_file_path, embeddings=embedding_model,
+                                                   pdf_loader=pdf_loader, chunk_size=chunk_size,
+                                                         chunk_overlap=chunk_overlap, project_name=project_name)
+    index_name = project_name + ".zip"
     make_archive(project_name, index_name)
     date = datetime.today().strftime('%Y-%m-%d')
     if upload_to_cloud:
@@ -127,15 +141,21 @@ with gr.Blocks() as demo:
 
             with gr.Row():
                 with gr.Tab("从本地PDF文件创建知识库"):
-                    file_pdf = gr.File(file_types=[".zip"], label="本地PDF文件(.zip)")
+                    zip_file = gr.File(file_types=[".zip"], label="本地PDF文件(.zip)")
                     create_db = gr.Button("创建知识库", variant="primary")
                     with gr.Accordion("高级设置", open=False):
+                        embedding_selector = gr.Dropdown(ALL_EMBEDDINGS,
+                                                         value="distilbert-dot-tas_b-b256-msmarco",
+                                                         label="Embedding Models")
                         pdf_loader_selector = gr.Dropdown([loader.__name__ for loader in ALL_PDF_LOADERS],
                                                           value=PyPDFLoader.__name__, label="PDF Loader")
                         chunk_size_slider = gr.Slider(minimum=50, maximum=500, step=50, value=300,
                                                       label="Chunk size (tokens)")
                         chunk_overlap_slider = gr.Slider(minimum=0, maximum=100, step=1, value=20,
                                                          label="Chunk overlap (tokens)")
+                        save_to_cloud_checkbox = gr.Checkbox(value=True, label="把数据库上传到云端")
+
+
                     file_dp_output = gr.File(file_types=[".zip"], label="(输出)知识库文件(.zip)")
                 with gr.Tab("读取本地知识库文件"):
                     file_local = gr.File(file_types=[".zip"], label="本地知识库文件(.zip)")
@@ -153,10 +173,17 @@ with gr.Blocks() as demo:
                                                   label="Query counts")
                     test_mode_checkbox = gr.Checkbox(label="Test mode")
 
+
+    # def load_pdf_as_db(file_from_gradio,
+    #                    pdf_loader,
+    #                    embedding_model,
+    #                    chunk_size=300,
+    #                    chunk_overlap=20,
+    #                    upload_to_cloud=True):
     msg.submit(respond, [msg, local_db, chatbot, query_count_slider, test_mode_checkbox], [msg, chatbot])
     submit.click(respond, [msg, local_db, chatbot, query_count_slider, test_mode_checkbox], [msg, chatbot])
 
-    create_db.click(load_pdf_as_db, [file_pdf, pdf_loader_selector, chunk_size_slider, chunk_overlap_slider],
+    create_db.click(load_pdf_as_db, [zip_file, pdf_loader_selector, embedding_selector,chunk_size_slider, chunk_overlap_slider, save_to_cloud_checkbox],
                     [status, file_dp_output, local_db])
     load_db.click(load_local_db, [file_local], [status, local_db])
 

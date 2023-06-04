@@ -4,6 +4,8 @@ from langchain.vectorstores import FAISS
 import os
 from tqdm.auto import tqdm
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.document_loaders import DirectoryLoader, TextLoader
+from llms.embeddings import EMBEDDINGS_MAPPING
 import tiktoken
 import zipfile
 import pickle
@@ -14,16 +16,28 @@ EMBED_MODEL = "text-embedding-ada-002"
 EMBED_DIM = 1536
 METRIC = 'cosine'
 
+#######################################################################################################################
+# Files handler
+#######################################################################################################################
+def check_existence(path):
+    return os.path.isfile(path) or os.path.isdir(path)
 
-#######################################################################################################################
-# PDF Files handler
-#######################################################################################################################
+
+def list_files(directory, ext=".pdf"):
+    # List all files in the directory
+    files_in_directory = os.listdir(directory)
+    # Filter the list to only include PDF files
+    files_list = [file for file in files_in_directory if file.endswith(ext)]
+    return files_list
+
+
 def list_pdf_files(directory):
     # List all files in the directory
     files_in_directory = os.listdir(directory)
     # Filter the list to only include PDF files
     pdf_files = [file for file in files_in_directory if file.endswith(".pdf")]
     return pdf_files
+
 
 
 def tiktoken_len(text):
@@ -41,11 +55,10 @@ def get_chunks(docs, chunk_size=500, chunk_overlap=20, length_function=tiktoken_
     chunks = []
     for idx, page in enumerate(tqdm(docs)):
         source = page.metadata.get('source')
-        pdf_name = page.metadata.get('file_name')
         content = page.page_content
         if len(content) > 50:
             texts = text_splitter.split_text(content)
-            chunks.extend([str({'content': texts[i], 'chunk': i, 'source': source, 'pdf_name': pdf_name}) for i in
+            chunks.extend([str({'content': texts[i], 'chunk': i, 'source': os.path.basename(source)}) for i in
                            range(len(texts))])
     return chunks
 
@@ -53,73 +66,76 @@ def get_chunks(docs, chunk_size=500, chunk_overlap=20, length_function=tiktoken_
 #######################################################################################################################
 # Create FAISS object
 #######################################################################################################################
+
+# ["text-embedding-ada-002", "distilbert-dot-tas_b-b256-msmarco"]
+
 def create_faiss_index_from_zip(path_to_zip_file, embeddings=None, pdf_loader=None,
-                                chunk_size=500, chunk_overlap=20, project_name="faiss_index", project_description=""):
+                                chunk_size=500, chunk_overlap=20,
+                                project_name="Very_Cool_Project_Name"):
     # initialize the file structure
     # structure: project_name
-    #               - path-to-extract-pdf-files
-    #                   - pdf data
-    #                   - embeddings
-    #                   - faiss_index
-    if embeddings is None:
-        from langchain.embeddings.openai import OpenAIEmbeddings
-        embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
-    db_meta = {"project_name": project_name, "project_description": project_description,
-               "pdf_loader": pdf_loader.__name__, "chunk_size": chunk_size, "chunk_overlap": chunk_overlap,
-               "dim": EMBED_DIM, "model": EMBED_MODEL, "metric": METRIC}
+    #               - source data
+    #               - embeddings
+    #               - faiss_index
+    if isinstance(embeddings, str):
+        import copy
+        embeddings_str = copy.deepcopy(embeddings)
+    else:
+        embeddings_str = "other-embedding-model"
 
+    if embeddings is None or embeddings == "text-embedding-ada-002":
+        embeddings = EMBEDDINGS_MAPPING["text-embedding-ada-002"]
+    elif isinstance(embeddings, str):
+        embeddings = EMBEDDINGS_MAPPING[embeddings]
+    else:
+        embeddings = EMBEDDINGS_MAPPING["text-embedding-ada-002"]
+
+    db_meta = {"project_name": project_name,
+               "pdf_loader": pdf_loader.__name__, "chunk_size": chunk_size,
+               "chunk_overlap": chunk_overlap,
+               "embedding_model": embeddings_str}
+    # STEP 1:
+    #   Create a folder f"{project_name}" in the current directory.
     current_directory = os.getcwd()
-    project_name = os.path.join(current_directory, project_name)
-    data_id = str(uuid.uuid1())
-    working_directory = os.path.join(project_name, data_id)
     if not os.path.exists(project_name):
         os.makedirs(project_name)
-    pdf_data = os.path.join(working_directory, "pdf_data")
-    embeddings_data = os.path.join(working_directory, "embeddings")
-    index_data = os.path.join(working_directory, "faiss_index")
-    os.makedirs(working_directory)  # uuid is always unique; no need to check existence
-    os.makedirs(pdf_data)
-    os.makedirs(embeddings_data)
-    os.makedirs(index_data)
+        project_path = os.path.join(current_directory, project_name)
+        source_data = os.path.join(project_path, "source_data")
+        embeddings_data = os.path.join(project_path, "embeddings")
+        index_data = os.path.join(project_path, "faiss_index")
+        os.makedirs(source_data)     #./project/source_data
+        os.makedirs(embeddings_data) #./project/embeddings
+        os.makedirs(index_data)      #./project/faiss_index
+    else:
+        raise ValueError(f"The project {project_name} exists.")
     with zipfile.ZipFile(path_to_zip_file, 'r') as zip_ref:
-        zip_ref.extractall(pdf_data)
-
-    # enumerate all pdf files in `extract_to`
-    all_pdf_files = list_pdf_files(pdf_data)
-    db_meta["pdf_list"] = all_pdf_files
-    with open(os.path.join(working_directory, "db_meta.json"), "w", encoding="utf-8") as f:
+        # extract everything to "source_data"
+        zip_ref.extractall(source_data)
+    with open(os.path.join(project_path, "db_meta.json"), "w", encoding="utf-8") as f:
+        # save db_meta.json to folder
         json.dump(db_meta, f)
-    for idx, pdf_file in enumerate(all_pdf_files):
-        # load meta data corresponds to the given pdf_file
-        filename = os.path.splitext(pdf_file)[0] + ".json"
-        if os.path.exists(filename):
-            with open(filename, "r", encoding="utf-8") as f:
-                meta_data = json.load(f)
+
+
+    all_docs = []
+    for ext in [".txt", ".tex", ".md", ".pdf"]:
+        if ext in [".txt", ".tex", ".md"]:
+            loader = DirectoryLoader(source_data, glob=f"**/*{ext}", loader_cls=TextLoader,
+                                     loader_kwargs={'autodetect_encoding': True})
+        elif ext in [".pdf"]:
+            loader = DirectoryLoader(source_data, glob=f"**/*{ext}", loader_cls=pdf_loader)
         else:
-            meta_data = {}
-            meta_data["file_name"] = pdf_file
+            continue
+        docs = loader.load()
+        all_docs = all_docs + docs
 
-        pdf_path = os.path.join(pdf_data, pdf_file)
-        loader = pdf_loader(pdf_path)
-        pages = loader.load()
-        for page in pages:
-            page.metadata = {**page.metadata, **meta_data}
-
-        # split pdf files into chunks and evaluate its embeddings; save all results into embeddings
-        chunks = get_chunks(pages, chunk_size, chunk_overlap)
-        text_embeddings = embeddings.embed_documents(chunks)
-        text_embedding_pairs = list(zip(chunks, text_embeddings))
-        embeddings_save_to = os.path.join(embeddings_data, 'text_embedding_pairs.pickle')
-        with open(embeddings_save_to, 'wb') as handle:
-            pickle.dump(text_embedding_pairs, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
-        # create FAISS db
-        if idx == 0:
-            # create a new index
-            db = FAISS.from_embeddings(text_embedding_pairs, embeddings)
-        else:
-            # add to existing index
-            db.add_embeddings(text_embedding_pairs)
+    # split pdf files into chunks and evaluate its embeddings; save all results into embeddings
+    chunks = get_chunks(all_docs, chunk_size, chunk_overlap)
+    text_embeddings = embeddings.embed_documents(chunks)
+    text_embedding_pairs = list(zip(chunks, text_embeddings))
+    embeddings_save_to = os.path.join(embeddings_data, 'text_embedding_pairs.pickle')
+    with open(embeddings_save_to, 'wb') as handle:
+        pickle.dump(text_embedding_pairs, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    db = FAISS.from_embeddings(text_embedding_pairs, embeddings)
 
     db.save_local(index_data)
     print(db_meta)
@@ -127,35 +143,66 @@ def create_faiss_index_from_zip(path_to_zip_file, embeddings=None, pdf_loader=No
     return db, project_name
 
 
-def load_faiss_index_from_zip(path_to_zip_file, embeddings=None):
-    if embeddings is None:
-        from langchain.embeddings.openai import OpenAIEmbeddings
-        embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
-    base_name = os.path.basename(path_to_zip_file)
-    path_to_extract = os.path.join(os.getcwd(), os.path.splitext(base_name)[0])
+def find_file(file_name, directory):
+    for root, dirs, files in os.walk(directory):
+        if file_name in files:
+            return os.path.join(root, file_name)
+    return None  # If the file was not found
+
+def find_file_dir(file_name, directory):
+    for root, dirs, files in os.walk(directory):
+        if file_name in files:
+            return root  # return the directory instead of the full path
+    return None  # If the file was not found
+
+
+def load_faiss_index_from_zip(path_to_zip_file):
+    # Extract the zip file. Read the db_meta
+    # base_name = os.path.basename(path_to_zip_file)
+    path_to_extract = os.path.join(os.getcwd())
     with zipfile.ZipFile(path_to_zip_file, 'r') as zip_ref:
         zip_ref.extractall(path_to_extract)
 
-    path_to_extract = os.path.join(path_to_extract, os.listdir(path_to_extract)[0])
-    # list all directories
-    directories = [os.path.join(path_to_extract, d) for d in os.listdir(path_to_extract) if
-                   os.path.isdir(os.path.join(path_to_extract, d))]
-    index_path = os.path.join(directories[0], "faiss_index")
-    db = FAISS.load_local(index_path, embeddings)
-    for idx, folder in enumerate(directories):
-        if idx != 0:
-            index_path = os.path.join(folder, "faiss_index")
-            new_db = FAISS.load_local(index_path, embeddings)
-            db.merge_from(new_db)
-    return db
+    db_meta_json = find_file("db_meta.json" , path_to_extract)
+    if db_meta_json is not None:
+        with open(db_meta_json, "r", encoding="utf-8") as f:
+            db_meta_dict = json.load(f)
+    else:
+        raise ValueError("Cannot find `db_meta.json` in the .zip file. ")
+
+    try:
+        embeddings = EMBEDDINGS_MAPPING[db_meta_dict["embedding_model"]]
+    except:
+        from langchain.embeddings.openai import OpenAIEmbeddings
+        embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
+
+    # locate index.faiss
+    index_path = find_file_dir("index.faiss", path_to_extract)
+    if index_path is not None:
+        db = FAISS.load_local(index_path, embeddings)
+        return db
+    else:
+        raise ValueError("Failed to find `index.faiss` in the .zip file.")
 
 
 if __name__ == "__main__":
     from langchain.document_loaders import PyPDFLoader
     from langchain.embeddings.openai import OpenAIEmbeddings
+    from langchain.embeddings import HuggingFaceEmbeddings
 
-    embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
-    create_faiss_index_from_zip(path_to_zip_file="pdf_data/document.zip", pdf_loader=PyPDFLoader, embeddings=embeddings)
+    model_name = "sebastian-hofstaetter/distilbert-dot-tas_b-b256-msmarco"
+    model_kwargs = {'device': 'cpu'}
+    encode_kwargs = {'normalize_embeddings': False}
+    embeddings = HuggingFaceEmbeddings(
+        model_name=model_name,
+        model_kwargs=model_kwargs,
+        encode_kwargs=encode_kwargs)
+    create_faiss_index_from_zip(path_to_zip_file="document.zip", pdf_loader=PyPDFLoader, embeddings=embeddings)
+    # docs = get_docs("pdf_data/ml_books", PyPDFLoader)
+
+
+    # embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
+    # create_faiss_index_from_zip(path_to_zip_file="pdf_data/document.zip", pdf_loader=PyPDFLoader, embeddings=embeddings)
     #
     # embeddings = OpenAIEmbeddings( model="text-embedding-ada-002" )
     # # docs = get_docs("pdf_data/ml_books", PyPDFLoader)
