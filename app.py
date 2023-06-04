@@ -29,11 +29,17 @@ PDF_LOADER_MAPPING = {loader.__name__: loader for loader in ALL_PDF_LOADERS}
 #######################################################################################################################
 # Host multiple vector database for use
 #######################################################################################################################
+# todo: add this feature in the future
 
 
 
+INSTRUCTIONS = '''# FAISS Chat: 和本地数据库聊天!
 
-INSTRUCTIONS = '''# FAISS Chat: 和本地数据库聊天!'''
+***2023-06-04更新:*** 
+1. 支持更多的Embedding Model
+2. 支持更多的文件格式(PDF, TXT, TEX, 和MD)
+3. 所有生成的数据库都可以在[这个数据集](https://huggingface.co/datasets/shaocongma/shared-faiss-vdb)里访问了！如果不希望文件被上传，可以在高级设置里关闭. 
+'''
 
 
 def load_pdf_as_db(file_from_gradio,
