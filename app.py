@@ -35,8 +35,11 @@ PDF_LOADER_MAPPING = {loader.__name__: loader for loader in ALL_PDF_LOADERS}
 
 INSTRUCTIONS = '''# FAISS Chat: 和本地数据库聊天!
 
+* 2023-06-04: 
+  * 支持读取图片格式的图表数据(目前支持JPG, PNG)
+  
 ***2023-06-04更新:*** 
-1. 支持更多的Embedding Model
+1. 支持更多的Embedding Model (目前支持[text-embedding-ada-002](https://openai.com/blog/new-and-improved-embedding-model), [text2vec-large-chinese](https://huggingface.co/GanymedeNil/text2vec-large-chinese), 和[distilbert-dot-tas_b-b256-msmarco](https://huggingface.co/sebastian-hofstaetter/distilbert-dot-tas_b-b256-msmarco) )
 2. 支持更多的文件格式(PDF, TXT, TEX, 和MD)
 3. 所有生成的数据库都可以在[这个数据集](https://huggingface.co/datasets/shaocongma/shared-faiss-vdb)里访问了！如果不希望文件被上传，可以在高级设置里关闭. 
 '''

@@ -19,6 +19,10 @@ Webui版本的Langchain-Chat. 目前支持两个功能:
 
 ## 更新日志
 
+
+* 2023-06-04: 
+  * 支持读取图片格式的图表数据(目前支持JPG, PNG)
+  
 * 2023-06-04: 
   * 支持更多文件格式 (目前支持PDF, TXT, MD, TEX)
   * 支持更多Embedding Models (目前支持[text-embedding-ada-002](https://openai.com/blog/new-and-improved-embedding-model), [text2vec-large-chinese](https://huggingface.co/GanymedeNil/text2vec-large-chinese), 和[distilbert-dot-tas_b-b256-msmarco](https://huggingface.co/sebastian-hofstaetter/distilbert-dot-tas_b-b256-msmarco) )
