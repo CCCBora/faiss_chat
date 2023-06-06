@@ -89,11 +89,6 @@ def create_faiss_index_from_zip(path_to_zip_file, embeddings=None, pdf_loader=No
         embeddings = EMBEDDINGS_MAPPING[embeddings]
     else:
         embeddings = EMBEDDINGS_MAPPING["text-embedding-ada-002"]
-
-    db_meta = {"project_name": project_name,
-               "pdf_loader": pdf_loader.__name__, "chunk_size": chunk_size,
-               "chunk_overlap": chunk_overlap,
-               "embedding_model": embeddings_str}
     # STEP 1:
     #   Create a folder f"{project_name}" in the current directory.
     current_directory = os.getcwd()
@@ -111,6 +106,14 @@ def create_faiss_index_from_zip(path_to_zip_file, embeddings=None, pdf_loader=No
     with zipfile.ZipFile(path_to_zip_file, 'r') as zip_ref:
         # extract everything to "source_data"
         zip_ref.extractall(source_data)
+
+
+    db_meta = {"project_name": project_name,
+               "pdf_loader": pdf_loader.__name__, "chunk_size": chunk_size,
+               "chunk_overlap": chunk_overlap,
+               "embedding_model": embeddings_str,
+               "files": os.listdir(source_data),
+               "source_path": source_data}
     with open(os.path.join(project_path, "db_meta.json"), "w", encoding="utf-8") as f:
         # save db_meta.json to folder
         json.dump(db_meta, f)
@@ -140,7 +143,7 @@ def create_faiss_index_from_zip(path_to_zip_file, embeddings=None, pdf_loader=No
     db.save_local(index_data)
     print(db_meta)
     print("Success!")
-    return db, project_name
+    return db, project_name, db_meta
 
 
 def find_file(file_name, directory):
@@ -198,24 +201,3 @@ if __name__ == "__main__":
         model_kwargs=model_kwargs,
         encode_kwargs=encode_kwargs)
     create_faiss_index_from_zip(path_to_zip_file="document.zip", pdf_loader=PyPDFLoader, embeddings=embeddings)
-    # docs = get_docs("pdf_data/ml_books", PyPDFLoader)
-
-
-    # embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
-    # create_faiss_index_from_zip(path_to_zip_file="pdf_data/document.zip", pdf_loader=PyPDFLoader, embeddings=embeddings)
-    #
-    # embeddings = OpenAIEmbeddings( model="text-embedding-ada-002" )
-    # # docs = get_docs("pdf_data/ml_books", PyPDFLoader)
-    # # db = create_faiss_db(docs, embeddings, index_name="ml_books_test")
-    # db = load_faiss_db(embeddings, "ml_books_test")
-    # # query = "Which Markov chain could be sub-geometrically ergodic?"
-    # # docs = db.similarity_search(query)
-    # # print(docs[0].page_content)
-    # #
-    # query = "What is hidden Markov models?"
-    # count = 5
-    # docs = db.similarity_search(query, k=count)
-    # prompts = ["Reference {}: {}\n\n".format(i, docs[i].page_content.replace('\n', ' ')) for i in range(count)]
-    # prompts = "".join(prompts)
-    # with open("tmp.txt", "w", encoding="utf-8") as f:
-    #     f.write(prompts)

@@ -10,8 +10,8 @@ from huggingface_hub import HfApi
 from langchain.document_loaders import PyPDFLoader, \
     UnstructuredPDFLoader, PyPDFium2Loader, PyMuPDFLoader, PDFPlumberLoader
 
-
 from knowledge.faiss_handler import create_faiss_index_from_zip, load_faiss_index_from_zip
+from knowledge.img_handler import process_image, add_markup
 from llms.chatbot import OpenAIChatBot
 from llms.embeddings import EMBEDDINGS_MAPPING
 from utils import make_archive
@@ -42,7 +42,7 @@ INSTRUCTIONS = '''# FAISS Chat: 和本地数据库聊天!
 '''
 
 
-def load_pdf_as_db(file_from_gradio,
+def load_zip_as_db(file_from_gradio,
                    pdf_loader,
                    embedding_model,
                    chunk_size=300,
@@ -55,7 +55,7 @@ def load_pdf_as_db(file_from_gradio,
     pdf_loader = PDF_LOADER_MAPPING[pdf_loader]
     zip_file_path = file_from_gradio.name
     project_name = uuid.uuid4().hex
-    db, project_name = create_faiss_index_from_zip(zip_file_path, embeddings=embedding_model,
+    db, project_name, db_meta = create_faiss_index_from_zip(zip_file_path, embeddings=embedding_model,
                                                    pdf_loader=pdf_loader, chunk_size=chunk_size,
                                                          chunk_overlap=chunk_overlap, project_name=project_name)
     index_name = project_name + ".zip"
@@ -66,7 +66,7 @@ def load_pdf_as_db(file_from_gradio,
                            path_in_repo=f"{date}/faiss_{index_name}.zip",
                            repo_id=UPLOAD_REPO_ID,
                            repo_type="dataset")
-    return "成功创建知识库. 可以开始聊天了!", index_name, db
+    return "成功创建知识库. 可以开始聊天了!", index_name, db, db_meta
 
 
 def load_local_db(file_from_gradio):
@@ -78,48 +78,76 @@ def load_local_db(file_from_gradio):
     return "成功读取知识库. 可以开始聊天了!", db
 
 
+def extract_image(image_path):
+    from PIL import Image
+    print("Image Path:", image_path)
+    im = Image.open(image_path)
+    table = process_image(im)
+    print(f"Success in processing the image. Table: {table}")
+    return table, add_markup(table)
+
 
 with gr.Blocks() as demo:
     local_db = gr.State(None)
 
-    def get_augmented_message(message, local_db, query_count, preprocessing):
+    def get_augmented_message(message, local_db, query_count, preprocessing, meta):
         print(f"Receiving message: {message}")
+
+        print("Detecting if the user need to read image from the local database...")
+        # read the db_meta.json from the local file
+        # read the images file list
+        files = meta["files"]
+        source_path = meta["source_path"]
+        # with open(meta.name, "r", encoding="utf-8") as f:
+        #     files = json.load(f)["files"]
+        img_files = []
+        for file in files:
+            if os.path.splitext(file)[1] in [".png", ".jpg"]:
+                img_files.append(file)
+
+        # scan user's input to see if it contains images' name
+        do_extract_image = False
+        target_file = None
+        for file in img_files:
+            img = os.path.splitext(file)[0]
+            if img in message:
+                do_extract_image = True
+                target_file = file
+                break
+
+        # extract image to tables
+        image_info = ""
+        if do_extract_image:
+            print("The user needs to read image from the local database. Extract image ... ")
+            target_file = os.path.join(source_path, target_file)
+            _, image_info = extract_image(target_file)
+        if len(image_info)>0:
+            image_content = {"content": image_info, "source": os.path.basename(target_file)}
+        else:
+            image_content = None
+
         print("Querying references from the local database...")
-        docs = local_db.similarity_search(message, k=query_count)
         contents = []
-        for i in range(query_count):
-            # pre-processing each chunk
-            content = docs[i].page_content.replace('\n', ' ')
-            # pre-process meta data
-            contents.append(content)
+        if query_count > 0:
+            docs = local_db.similarity_search(message, k=query_count)
+            for i in range(query_count):
+                # pre-processing each chunk
+                content = docs[i].page_content.replace('\n', ' ')
+                # pre-process meta data
+                contents.append(content)
         # generate augmented_message
         print("Success in querying references: {}".format(contents))
-        if preprocessing:
-            print("Pre-processing ...")
-            try:
-                # augmented_message = preprocessing_bot("\n\n---\n\n".join(contents) + "\n\n-----\n\n")
-                augmented_message = "\n\n---\n\n".join(contents) + "\n\n-----\n\n"
-                print("Success in pre-processing. ")
-                try:
-                    msg = json.loads(augmented_message)
-                    msg['user_input'] = message
-                    return str(msg)
-                except:
-                    return augmented_message + "\n\n" + f"{{'user_input': {message}}}"
-            except Exception as e:
-                print(f"Failed in pre-processing the documents: {e}. Return the raw input.")
-                augmented_message = f"{{'user_input': {message}}}"
-                return augmented_message + "\n\n" + message
+        if image_content is not None:
+            augmented_message =  f"{image_content}\n\n---\n\n" + "\n\n---\n\n".join(contents) + "\n\n-----\n\n"
         else:
-            augmented_message = "\n\n---\n\n".join(contents) + "\n\n-----\n\n"
-            return augmented_message + "\n\n" + f"'user_input': {message}"
+            augmented_message =  "\n\n---\n\n".join(contents) + "\n\n-----\n\n"
+        return augmented_message + "\n\n" + f"'user_input': {message}"
 
 
-    def respond(message, local_db, chat_history, query_count=5, test_mode=False, response_delay=5, preprocessing=False):
+    def respond(message, local_db, chat_history, meta, query_count=5, test_mode=False, response_delay=5, preprocessing=False):
         gpt_chatbot = OpenAIChatBot()
-        print(chat_history)
-        for chat in chat_history:
-            print(chat)
+        print("Chat History: ", chat_history)
+        print("Local DB: ", local_db is None)
         for chat in chat_history:
             gpt_chatbot.load_chat(chat)
         if local_db is None or query_count == 0:
@@ -129,7 +157,7 @@ with gr.Blocks() as demo:
             chat_history.append((message, bot_message))
             return "", chat_history
         else:
-            augmented_message = get_augmented_message(message, local_db, query_count, preprocessing)
+            augmented_message = get_augmented_message(message, local_db, query_count, preprocessing, meta)
             bot_message = gpt_chatbot(augmented_message, original_message=message)
             print(message)
             print(augmented_message)
@@ -174,6 +202,7 @@ with gr.Blocks() as demo:
             msg = gr.Textbox()
             submit = gr.Button("Submit", variant="primary")
             with gr.Accordion("高级设置", open=False):
+                json_output = gr.JSON()
                 with gr.Row():
                     query_count_slider = gr.Slider(minimum=0, maximum=10, step=1, value=3,
                                                   label="Query counts")
@@ -186,11 +215,11 @@ with gr.Blocks() as demo:
     #                    chunk_size=300,
     #                    chunk_overlap=20,
     #                    upload_to_cloud=True):
-    msg.submit(respond, [msg, local_db, chatbot, query_count_slider, test_mode_checkbox], [msg, chatbot])
-    submit.click(respond, [msg, local_db, chatbot, query_count_slider, test_mode_checkbox], [msg, chatbot])
+    msg.submit(respond, [msg, local_db, chatbot, json_output, query_count_slider, test_mode_checkbox], [msg, chatbot])
+    submit.click(respond, [msg, local_db, chatbot, json_output, query_count_slider, test_mode_checkbox], [msg, chatbot])
 
-    create_db.click(load_pdf_as_db, [zip_file, pdf_loader_selector, embedding_selector,chunk_size_slider, chunk_overlap_slider, save_to_cloud_checkbox],
-                    [status, file_dp_output, local_db])
+    create_db.click(load_zip_as_db, [zip_file, pdf_loader_selector, embedding_selector, chunk_size_slider, chunk_overlap_slider, save_to_cloud_checkbox],
+                    [status, file_dp_output, local_db, json_output])
     load_db.click(load_local_db, [file_local], [status, local_db])
 
 demo.launch()
