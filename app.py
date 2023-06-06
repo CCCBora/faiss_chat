@@ -35,12 +35,13 @@ PDF_LOADER_MAPPING = {loader.__name__: loader for loader in ALL_PDF_LOADERS}
 
 INSTRUCTIONS = '''# FAISS Chat: 和本地数据库聊天!
 
-* 2023-06-04: 
-  * 支持读取图片格式的图表数据(目前支持JPG, PNG)
+***2023-06-06更新:*** 
+1. 支持读取图片格式的图表数据(目前支持JPG, PNG).
+2. 在"总结图表(Demo)"的标签页里提供了这个模块的测试.
   
 ***2023-06-04更新:*** 
 1. 支持更多的Embedding Model (目前支持[text-embedding-ada-002](https://openai.com/blog/new-and-improved-embedding-model), [text2vec-large-chinese](https://huggingface.co/GanymedeNil/text2vec-large-chinese), 和[distilbert-dot-tas_b-b256-msmarco](https://huggingface.co/sebastian-hofstaetter/distilbert-dot-tas_b-b256-msmarco) )
-2. 支持更多的文件格式(PDF, TXT, TEX, 和MD)
+2. 支持更多的文件格式(PDF, TXT, TEX, 和MD).
 3. 所有生成的数据库都可以在[这个数据集](https://huggingface.co/datasets/shaocongma/shared-faiss-vdb)里访问了！如果不希望文件被上传，可以在高级设置里关闭. 
 '''
 
@@ -88,6 +89,25 @@ def extract_image(image_path):
     table = process_image(im)
     print(f"Success in processing the image. Table: {table}")
     return table, add_markup(table)
+
+
+def describe(image):
+    table = add_markup(process_image(image))
+    _INSTRUCTION = 'Read the table below to answer the following questions.'
+    question = "Please refer to the above table, and write a summary of no less than 200 words based on it in Chinese, ensuring that your response is detailed and precise."
+    prompt_0shot = _INSTRUCTION + "\n" + add_markup(table) + "\n" + "Q: " + question + "\n" + "A:"
+
+    messages = [{"role": "assistant", "content": prompt_0shot}]
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=messages,
+        temperature=0.7,
+        top_p=1,
+        frequency_penalty=0,
+        presence_penalty=0,
+    )
+    ret = response.choices[0].message['content']
+    return ret
 
 
 with gr.Blocks() as demo:
@@ -198,6 +218,16 @@ with gr.Blocks() as demo:
                     file_local = gr.File(file_types=[".zip"], label="本地知识库文件(.zip)")
                     load_db = gr.Button("读取已创建知识库", variant="primary")
 
+                with gr.Tab("总结图表(Demo)"):
+                    gr.Markdown(r"代码来源于: https://huggingface.co/spaces/fl399/deplot_plus_llm")
+                    input_image = gr.Image(label="Input Image", type="pil", interactive=True)
+                    extract = gr.Button("总结", variant="primary")
+
+                    output_text = gr.Textbox(lines=8, label="Output")
+
+
+
+
         with gr.Column():
             status = gr.Textbox(label="用来显示程序运行状态的Textbox")
             chatbot = gr.Chatbot()
@@ -224,5 +254,7 @@ with gr.Blocks() as demo:
     create_db.click(load_zip_as_db, [zip_file, pdf_loader_selector, embedding_selector, chunk_size_slider, chunk_overlap_slider, save_to_cloud_checkbox],
                     [status, file_dp_output, local_db, json_output])
     load_db.click(load_local_db, [file_local], [status, local_db])
+
+    extract.click(describe, [input_image], [output_text])
 
 demo.launch()
