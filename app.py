@@ -94,7 +94,7 @@ def extract_image(image_path):
 def describe(image):
     table = add_markup(process_image(image))
     _INSTRUCTION = 'Read the table below to answer the following questions.'
-    question = "Please refer to the above table, and write a summary of no less than 200 words based on it in Chinese, ensuring that your response is detailed and precise."
+    question = "Please refer to the above table, and write a summary of no less than 200 words based on it in Chinese, ensuring that your response is detailed and precise. "
     prompt_0shot = _INSTRUCTION + "\n" + add_markup(table) + "\n" + "Q: " + question + "\n" + "A:"
 
     messages = [{"role": "assistant", "content": prompt_0shot}]
@@ -151,13 +151,16 @@ with gr.Blocks() as demo:
 
         print("Querying references from the local database...")
         contents = []
-        if query_count > 0:
-            docs = local_db.similarity_search(message, k=query_count)
-            for i in range(query_count):
-                # pre-processing each chunk
-                content = docs[i].page_content.replace('\n', ' ')
-                # pre-process meta data
-                contents.append(content)
+        try:
+            if query_count > 0:
+                docs = local_db.similarity_search(message, k=query_count)
+                for i in range(query_count):
+                    # pre-processing each chunk
+                    content = docs[i].page_content.replace('\n', ' ')
+                    # pre-process meta data
+                    contents.append(content)
+        except:
+            print("Failed to query from the local database. ")
         # generate augmented_message
         print("Success in querying references: {}".format(contents))
         if image_content is not None:
@@ -257,4 +260,4 @@ with gr.Blocks() as demo:
 
     extract.click(describe, [input_image], [output_text])
 
-demo.launch()
+demo.launch(show_api=False)
