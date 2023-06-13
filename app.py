@@ -19,6 +19,7 @@ from utils import make_archive
 UPLOAD_REPO_ID=os.getenv("UPLOAD_REPO_ID")
 HF_TOKEN=os.getenv("HF_TOKEN")
 openai.api_key = os.getenv("OPENAI_API_KEY")
+openai.api_base == os.getenv("OPENAI_API_BASE")
 hf_api = HfApi(token=HF_TOKEN)
 
 ALL_PDF_LOADERS = [PyPDFLoader, UnstructuredPDFLoader, PyPDFium2Loader, PyMuPDFLoader, PDFPlumberLoader]
@@ -209,11 +210,11 @@ with gr.Blocks() as demo:
                                                          label="Embedding Models")
                         pdf_loader_selector = gr.Dropdown([loader.__name__ for loader in ALL_PDF_LOADERS],
                                                           value=PyPDFLoader.__name__, label="PDF Loader")
-                        chunk_size_slider = gr.Slider(minimum=50, maximum=500, step=50, value=300,
+                        chunk_size_slider = gr.Slider(minimum=50, maximum=2000, step=50, value=500,
                                                       label="Chunk size (tokens)")
-                        chunk_overlap_slider = gr.Slider(minimum=0, maximum=100, step=1, value=20,
+                        chunk_overlap_slider = gr.Slider(minimum=0, maximum=500, step=1, value=50,
                                                          label="Chunk overlap (tokens)")
-                        save_to_cloud_checkbox = gr.Checkbox(value=True, label="把数据库上传到云端")
+                        save_to_cloud_checkbox = gr.Checkbox(value=False, label="把数据库上传到云端")
 
 
                     file_dp_output = gr.File(file_types=[".zip"], label="(输出)知识库文件(.zip)")
